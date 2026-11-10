@@ -1,0 +1,12 @@
+{
+  "app": {
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "targets": ["dmg", "app"],
+    "icon": ["icons/icon.icns"],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}
