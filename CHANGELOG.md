@@ -11,6 +11,9 @@
 - Clear message, retry button and log entry (`clauwitch.log`) when a folder is locked by another program.
 - The window, Alt+F4 and tray Quit are blocked while an account operation is running.
 - Claude gets 10 seconds to exit cleanly before it is force-closed; force-closes are logged.
+- Settings panel: theme (automatic/light/dark), keep running in the tray, start with the system, open data folder or log, reset window position, version.
+- Tray menu shows the active account and adds Open Claude and Settings; left-click shows the window.
+- Account search appears when there are more than five accounts.
 
 ## 1.0.0 — 2026-11-10
 

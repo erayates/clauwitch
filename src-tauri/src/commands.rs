@@ -37,6 +37,11 @@ pub struct StateDto {
     pub active_running: bool,
     pub live_path: Option<String>,
     pub launcher_found: bool,
+    /// User preference: "auto", "light" or "dark". `theme` is the resolved value.
+    pub theme_setting: String,
+    pub close_to_tray: bool,
+    pub data_dir: String,
+    pub log_path: String,
 }
 
 pub fn build_state() -> StateDto {
@@ -48,7 +53,7 @@ pub fn build_state() -> StateDto {
         profiles: settings.profiles_dto(),
         active_id: settings.active_id.clone(),
         language: settings.language.clone(),
-        theme: if claude::theme_is_dark() {
+        theme: if resolve_dark(&settings.theme) {
             "dark".to_string()
         } else {
             "light".to_string()
@@ -57,6 +62,10 @@ pub fn build_state() -> StateDto {
         active_running: processes.iter().any(|process| process.canonical),
         live_path: live.map(|path| path.to_string_lossy().to_string()),
         launcher_found: paths::detect_launcher().is_some(),
+        theme_setting: settings.theme.clone(),
+        close_to_tray: settings.close_to_tray,
+        data_dir: paths::app_root().to_string_lossy().to_string(),
+        log_path: paths::log_path().to_string_lossy().to_string(),
     }
 }
 
@@ -233,6 +242,11 @@ pub fn window_is_maximized(app: AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn window_close(app: AppHandle) -> Result<(), String> {
+    if Settings::load().close_to_tray {
+        if let Some(window) = app.get_webview_window("main") {
+            return window.hide().map_err(|_| "error_unexpected".to_string());
+        }
+    }
     if is_busy() {
         return Err("error_busy".to_string());
     }
@@ -406,4 +420,90 @@ pub async fn import_account(app: AppHandle) -> Result<StateDto, String> {
         switcher::import_profile(&mut settings, &source)
     })
     .await
+}
+
+fn resolve_dark(setting: &str) -> bool {
+    match setting {
+        "dark" => true,
+        "light" => false,
+        _ => claude::theme_is_dark(),
+    }
+}
+
+#[tauri::command]
+pub async fn update_preferences(
+    app: AppHandle,
+    close_to_tray: bool,
+    theme: String,
+) -> Result<StateDto, String> {
+    if !matches!(theme.as_str(), "auto" | "light" | "dark") {
+        return Err("error_unexpected".to_string());
+    }
+    mutate(app, move || {
+        let mut settings = Settings::load();
+        settings.close_to_tray = close_to_tray;
+        settings.theme = theme;
+        settings.save()
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn get_autostart(app: AppHandle) -> bool {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    let result = if enabled {
+        launcher.enable()
+    } else {
+        launcher.disable()
+    };
+    result.map_err(|error| {
+        paths::log(&format!("autostart change failed: {error}"));
+        "error_unexpected".to_string()
+    })?;
+    Ok(launcher.is_enabled().unwrap_or(enabled))
+}
+
+/// Puts the window back at its default size in the middle of the primary screen
+/// (recovers a window left on a disconnected monitor).
+#[tauri::command]
+pub fn reset_window(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "error_unexpected".to_string())?;
+    let _ = window.unmaximize();
+    window
+        .set_size(tauri::LogicalSize::new(980.0, 700.0))
+        .and_then(|_| window.center())
+        .map_err(|_| "error_unexpected".to_string())
+}
+
+/// Opens the Clauwitch data folder (`"data"`) or its log file (`"log"`).
+#[tauri::command]
+pub async fn open_app_path(kind: String) -> Result<(), String> {
+    run_blocking(move || {
+        let path = match kind.as_str() {
+            "data" => paths::app_root(),
+            "log" => {
+                if !paths::log_path().is_file() {
+                    paths::log("log opened");
+                }
+                paths::log_path()
+            }
+            _ => return Err("error_unexpected".to_string()),
+        };
+        switcher::open_path(&path)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
 }

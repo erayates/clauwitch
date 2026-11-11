@@ -10,6 +10,9 @@ mod tray;
 
 use tauri::Manager;
 
+/// Passed by the OS login item; the app then starts hidden in the tray.
+const AUTOSTART_ARG: &str = "--autostart";
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -17,6 +20,10 @@ fn main() {
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![AUTOSTART_ARG]),
+        ))
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::add_account,
@@ -28,6 +35,12 @@ fn main() {
             commands::open_folder,
             commands::export_account,
             commands::import_account,
+            commands::update_preferences,
+            commands::get_autostart,
+            commands::set_autostart,
+            commands::reset_window,
+            commands::open_app_path,
+            commands::app_version,
             commands::set_language,
             commands::window_minimize,
             commands::window_toggle_maximize,
@@ -55,9 +68,14 @@ fn main() {
             let state = commands::build_state();
             commands::apply_window_chrome(&handle, &state);
 
+            let autostarted = std::env::args().any(|arg| arg == AUTOSTART_ARG);
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
+                if autostarted {
+                    let _ = window.hide();
+                } else {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                }
             }
 
             Ok(())

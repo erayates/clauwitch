@@ -23,7 +23,7 @@
         "shadow": false,
         "noRedirectionBitmap": true,
         "backgroundColor": [0, 0, 0, 0],
-        "visible": true
+        "visible": false
       }
     ],
     "security": {

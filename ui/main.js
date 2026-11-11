@@ -95,7 +95,20 @@
       notice_imported: 'Backup added as a new account.',
       retry: 'Try again',
       busy_export: 'Backing up...',
-      busy_import: 'Importing...'
+      busy_import: 'Importing...',
+      settings_title: 'Settings',
+      settings_theme: 'Theme',
+      theme_auto: 'Automatic',
+      theme_light: 'Light',
+      theme_dark: 'Dark',
+      settings_close_to_tray: 'Keep running in the tray when the window is closed',
+      settings_autostart: 'Start with the system (in the tray)',
+      settings_open_data: 'Open data folder',
+      settings_open_log: 'Open log',
+      settings_reset_window: 'Reset window position',
+      settings_version: 'Version {0}',
+      close: 'Close',
+      search_placeholder: 'Search accounts'
     },
     tr: {
       app_title: 'Clauwitch',
@@ -189,7 +202,20 @@
       notice_imported: 'Yedek yeni hesap olarak eklendi.',
       retry: 'Tekrar dene',
       busy_export: 'Yedekleniyor...',
-      busy_import: 'İçe aktarılıyor...'
+      busy_import: 'İçe aktarılıyor...',
+      settings_title: 'Ayarlar',
+      settings_theme: 'Tema',
+      theme_auto: 'Otomatik',
+      theme_light: 'Açık',
+      theme_dark: 'Koyu',
+      settings_close_to_tray: 'Pencere kapatılınca sistem tepsisinde çalışmaya devam et',
+      settings_autostart: 'Sistemle birlikte başlat (tepside)',
+      settings_open_data: 'Veri klasörünü aç',
+      settings_open_log: 'Logu aç',
+      settings_reset_window: 'Pencere konumunu sıfırla',
+      settings_version: 'Sürüm {0}',
+      close: 'Kapat',
+      search_placeholder: 'Hesap ara'
     }
   };
 
@@ -233,6 +259,9 @@
     languageButton: $('languageButton'),
     languageLabel: $('languageLabel'),
     addButton: $('addButton'),
+    settingsButton: $('settingsButton'),
+    searchRow: $('searchRow'),
+    searchInput: $('searchInput'),
     addLabel: $('addLabel'),
     primaryButton: $('primaryButton'),
     primaryLabel: $('primaryLabel'),
@@ -344,6 +373,9 @@
     state.activeRunning = Boolean(dto.active_running);
     state.livePath = dto.live_path || null;
     state.launcherFound = Boolean(dto.launcher_found);
+    state.themeSetting = dto.theme_setting || 'auto';
+    state.closeToTray = dto.close_to_tray !== false;
+    state.dataDir = dto.data_dir || '';
 
     if (options.selectActive) {
       state.selectedId = state.activeId;
@@ -369,6 +401,8 @@
     document.documentElement.lang = state.language;
     document.title = t('app_title');
     els.headerTitle.textContent = t('header_title');
+    els.settingsButton.setAttribute('aria-label', t('settings_title'));
+    els.settingsButton.title = t('settings_title');
     els.headerSubtitle.textContent = t('header_subtitle');
     els.languageLabel.textContent = languageName(state.language);
     els.addLabel.textContent = t('add_account');
@@ -465,6 +499,109 @@
     }
   }
 
+  // Search appears once there are enough accounts to need it.
+  function applySearch() {
+    const many = state.profiles.length > 5;
+    els.searchRow.hidden = !many;
+    els.searchInput.placeholder = t('search_placeholder');
+    els.searchInput.setAttribute('aria-label', t('search_placeholder'));
+    const query = many ? els.searchInput.value.trim().toLocaleLowerCase() : '';
+    for (const row of els.list.querySelectorAll('.account-row')) {
+      const name = row.querySelector('.name')?.textContent.toLocaleLowerCase() ?? '';
+      row.hidden = Boolean(query) && !name.includes(query);
+    }
+  }
+
+  async function openSettings() {
+    if (state.busy) {
+      return;
+    }
+    closeMenu();
+
+    const panel = document.createElement('div');
+    panel.className = 'settings-panel';
+
+    const row = (labelText, control) => {
+      const label = document.createElement('label');
+      label.className = 'settings-row';
+      const span = document.createElement('span');
+      span.textContent = labelText;
+      label.append(span, control);
+      panel.appendChild(label);
+    };
+
+    const save = async () => {
+      try {
+        const dto = await invoke('update_preferences', {
+          closeToTray: trayBox.checked,
+          theme: themeSelect.value
+        });
+        applyState(dto, { forceRebuild: true });
+      } catch (error) {
+        showError(error);
+      }
+    };
+
+    const themeSelect = document.createElement('select');
+    for (const value of ['auto', 'light', 'dark']) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = t(`theme_${value}`);
+      option.selected = state.themeSetting === value;
+      themeSelect.appendChild(option);
+    }
+    themeSelect.addEventListener('change', save);
+    row(t('settings_theme'), themeSelect);
+
+    const trayBox = document.createElement('input');
+    trayBox.type = 'checkbox';
+    trayBox.checked = state.closeToTray;
+    trayBox.addEventListener('change', save);
+    row(t('settings_close_to_tray'), trayBox);
+
+    const autoBox = document.createElement('input');
+    autoBox.type = 'checkbox';
+    autoBox.checked = await invoke('get_autostart').catch(() => false);
+    autoBox.addEventListener('change', async () => {
+      try {
+        autoBox.checked = await invoke('set_autostart', { enabled: autoBox.checked });
+      } catch (error) {
+        autoBox.checked = !autoBox.checked;
+        showError(error);
+      }
+    });
+    row(t('settings_autostart'), autoBox);
+
+    const links = document.createElement('div');
+    links.className = 'settings-links';
+    const linkButton = (text, handler) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-secondary btn-compact';
+      button.textContent = text;
+      button.addEventListener('click', () => handler().catch(showError));
+      links.appendChild(button);
+    };
+    linkButton(t('settings_open_data'), () => invoke('open_app_path', { kind: 'data' }));
+    linkButton(t('settings_open_log'), () => invoke('open_app_path', { kind: 'log' }));
+    linkButton(t('settings_reset_window'), () => invoke('reset_window'));
+    panel.appendChild(links);
+
+    const version = document.createElement('p');
+    version.className = 'settings-version';
+    version.textContent = t('settings_version', await invoke('app_version').catch(() => '?'));
+    panel.appendChild(version);
+
+    await openModal({
+      title: t('settings_title'),
+      body: panel,
+      confirmText: t('close'),
+      cancelText: null,
+      input: false,
+      danger: false
+    });
+  }
+
   function renderAccounts(force = false) {
     const currentSignature = signature();
     const hasUserProfiles = state.profiles.some(profile => !profile.is_default);
@@ -528,6 +665,7 @@
     }).join('');
 
     updateRowStatuses();
+    applySearch();
 
     if (listHadFocus) {
       const selectedRow = els.list.querySelector('.account-row.selected');
@@ -1195,6 +1333,10 @@
       heading.textContent = title;
       modal.appendChild(heading);
 
+      if (options.body) {
+        modal.appendChild(options.body);
+      }
+
       if (message) {
         const text = document.createElement('p');
         text.className = 'modal-text';
@@ -1471,6 +1613,8 @@
 
   async function init() {
     els.languageButton.addEventListener('click', openLanguageMenu);
+    els.settingsButton.addEventListener('click', openSettings);
+    els.searchInput.addEventListener('input', applySearch);
     els.addButton.addEventListener('click', addAccount);
     els.primaryButton.addEventListener('click', activateSelected);
     els.list.addEventListener('click', onListClick);
@@ -1509,6 +1653,8 @@
     });
 
     try {
+      await listen('tray-settings', () => openSettings());
+      await listen('tray-open-claude', () => openActive());
       await listen('tray-switch', event => {
         if (state.busy) {
           return;

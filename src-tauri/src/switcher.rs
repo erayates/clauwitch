@@ -307,6 +307,11 @@ pub fn open_folder(settings: &Settings, profile_id: &str) -> Result<(), String> 
         return Err("error_folder_missing".to_string());
     }
 
+    open_path(&folder)
+}
+
+/// Opens a folder in the file manager, or a file with its default app.
+pub fn open_path(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     let mut command = {
         use std::os::windows::process::CommandExt;
@@ -321,7 +326,7 @@ pub fn open_folder(settings: &Settings, profile_id: &str) -> Result<(), String> 
     let mut command = Command::new("xdg-open");
 
     command
-        .arg(folder)
+        .arg(path)
         .spawn()
         .map(|_| ())
         .map_err(|_| "error_folder_open_failed".to_string())

@@ -38,6 +38,10 @@ pub struct Settings {
     pub profiles: Vec<Profile>,
     pub active_id: String,
     pub language: String,
+    /// Close button hides to the tray instead of quitting.
+    pub close_to_tray: bool,
+    /// "auto" (follow Claude / OS), "light" or "dark".
+    pub theme: String,
     extra_lines: Vec<String>,
 }
 
@@ -57,6 +61,8 @@ impl Settings {
             profiles: Vec::new(),
             active_id: "default".to_string(),
             language: system_language(),
+            close_to_tray: true,
+            theme: "auto".to_string(),
             extra_lines: Vec::new(),
         };
 
@@ -69,6 +75,12 @@ impl Settings {
                     let code = value.trim();
                     if code == "tr" || code == "en" {
                         settings.language = code.to_string();
+                    }
+                } else if let Some(value) = line.strip_prefix("close_to_tray=") {
+                    settings.close_to_tray = value.trim() != "0";
+                } else if let Some(value) = line.strip_prefix("theme=") {
+                    if matches!(value.trim(), "auto" | "light" | "dark") {
+                        settings.theme = value.trim().to_string();
                     }
                 } else if line.starts_with("profile\t") {
                     if let Some(profile) = parse_profile(line) {
@@ -109,6 +121,8 @@ impl Settings {
         output.push_str("v=1\n");
         output.push_str(&format!("active={}\n", self.active_id));
         output.push_str(&format!("lang={}\n", self.language));
+        output.push_str(&format!("close_to_tray={}\n", u8::from(self.close_to_tray)));
+        output.push_str(&format!("theme={}\n", self.theme));
 
         for line in &self.extra_lines {
             output.push_str(line);

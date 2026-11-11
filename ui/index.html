@@ -67,6 +67,14 @@
       <rect x="8" y="5" width="11" height="11" rx="2"/>
       <path d="M5 9v8a2 2 0 0 0 2 2h8"/>
     </symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6"/>
+    </symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="6.5"/>
+      <path d="m16 16 4 4"/>
+    </symbol>
   </svg>
 
   <div class="app" id="app">
@@ -101,12 +109,19 @@
         <span id="languageLabel">English</span>
         <svg class="icon icon-chevron"><use href="#icon-chevron-down"/></svg>
       </button>
+      <button class="btn btn-secondary btn-compact settings-button" id="settingsButton" type="button" aria-label="Settings" title="Settings">
+        <svg class="icon"><use href="#icon-settings"/></svg>
+      </button>
     </header>
 
     <div class="banner" id="banner" hidden></div>
 
     <main class="content">
       <section class="card" aria-label="Claude accounts">
+        <div class="search-row" id="searchRow" hidden>
+          <svg class="icon"><use href="#icon-search"/></svg>
+          <input class="search-input" id="searchInput" type="search" autocomplete="off" aria-label="Search accounts" placeholder="Search accounts">
+        </div>
         <div class="account-list" id="accountList" role="listbox" aria-label="Accounts"></div>
         <div class="empty-state" id="emptyState" hidden>
           <div class="empty-mark" aria-hidden="true">
