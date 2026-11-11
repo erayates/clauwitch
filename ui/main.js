@@ -80,7 +80,22 @@
       error_delete_failed: 'The account could not be deleted. Make sure Claude is closed and try again.',
       error_folder_missing: 'This account does not have a local folder yet. Open it once with Claude, then try again.',
       error_folder_open_failed: 'The folder could not be opened.',
-      error_unexpected: 'An unexpected error occurred.'
+      error_unexpected: 'An unexpected error occurred.',
+      error_folder_locked: 'The account folder is in use by another program (for example Claude, antivirus, File Explorer or a terminal). Close it and try again. Details are in clauwitch.log.',
+      error_busy: 'An account operation is in progress. Wait for it to finish; interrupting it could damage data.',
+      error_close_claude_first: 'Close Claude before backing up the active account.',
+      error_export_failed: 'The backup could not be created.',
+      error_import_failed: 'The backup could not be imported.',
+      error_invalid_backup: 'The selected folder is not a Claude data folder or Clauwitch backup (no config.json).',
+      signed_in: 'Signed in',
+      signed_out: 'Sign-in needed',
+      menu_export: 'Back up...',
+      menu_import: 'Add account from backup...',
+      notice_exported: 'Backup saved: {0}',
+      notice_imported: 'Backup added as a new account.',
+      retry: 'Try again',
+      busy_export: 'Backing up...',
+      busy_import: 'Importing...'
     },
     tr: {
       app_title: 'Clauwitch',
@@ -159,7 +174,22 @@
       error_delete_failed: 'Hesap silinemedi. Claude\'un kapalı olduğundan emin olup tekrar deneyin.',
       error_folder_missing: 'Bu hesabın henüz yerel bir klasörü yok. Claude ile bir kez açtıktan sonra tekrar deneyin.',
       error_folder_open_failed: 'Klasör açılamadı.',
-      error_unexpected: 'Beklenmeyen bir hata oluştu.'
+      error_unexpected: 'Beklenmeyen bir hata oluştu.',
+      error_folder_locked: 'Hesap klasörü başka bir program tarafından kullanılıyor (ör. Claude, antivirüs, Dosya Gezgini veya bir terminal). O programı kapatıp tekrar deneyin. Ayrıntılar clauwitch.log dosyasında.',
+      error_busy: 'Hesap işlemi sürüyor. Bitmesini bekleyin; işlem yarıda kesilirse veriler zarar görebilir.',
+      error_close_claude_first: 'Aktif hesabı yedeklemeden önce Claude\'u kapatın.',
+      error_export_failed: 'Yedek oluşturulamadı.',
+      error_import_failed: 'Yedek içe aktarılamadı.',
+      error_invalid_backup: 'Seçilen klasör bir Claude veri klasörü ya da Clauwitch yedeği değil (config.json yok).',
+      signed_in: 'Giriş yapılmış',
+      signed_out: 'Giriş gerekli',
+      menu_export: 'Yedekle...',
+      menu_import: 'Yedekten hesap ekle...',
+      notice_exported: 'Yedek kaydedildi: {0}',
+      notice_imported: 'Yedek yeni hesap olarak eklendi.',
+      retry: 'Tekrar dene',
+      busy_export: 'Yedekleniyor...',
+      busy_import: 'İçe aktarılıyor...'
     }
   };
 
@@ -298,7 +328,7 @@
       state.language,
       state.activeId,
       state.profiles.map(profile =>
-        `${profile.id}:${profile.name}:${profile.is_default ? 1 : 0}:${profile.last_used_ms ?? 0}`
+        `${profile.id}:${profile.name}:${profile.is_default ? 1 : 0}:${profile.last_used_ms ?? 0}:${profile.signed_in}`
       ).join('|')
     ].join('~');
   }
@@ -413,7 +443,8 @@
     }
     try {
       await invoke('window_close');
-    } catch {
+    } catch (error) {
+      showError(error);
     }
   }
 
@@ -465,9 +496,13 @@
         ? t('status_open')
         : status === 'closed' ? t('status_closed') : t('status_saved');
       const name = displayName(profile);
-      const meta = profile.last_used_ms
+      const used = profile.last_used_ms
         ? t('last_used', formatDate(profile.last_used_ms))
         : t('not_used');
+      // signed_in is null when Claude has never been opened in this folder.
+      const meta = profile.signed_in == null
+        ? used
+        : `${used} · ${t(profile.signed_in ? 'signed_in' : 'signed_out')}`;
       const avatar = profile.is_default
         ? '<img class="avatar avatar-icon" src="app-icon.png" alt="">'
         : `<div class="avatar" style="--avatar:${avatarColor(profile.id)}"><span>${escapeHtml(initialFor(name))}</span></div>`;
@@ -664,12 +699,49 @@
       }
       return dto;
     } catch (error) {
+      setBusy(false);
       await refresh(true);
-      showError(error);
+      const code = errorCode(error);
+      if (code === 'error_folder_locked' || code === 'error_switch_failed' || code === 'error_close_failed') {
+        const retry = await openModal({
+          title: t('error_title'),
+          message: t(code),
+          confirmText: t('retry'),
+          cancelText: t('cancel'),
+          input: false,
+          danger: false
+        });
+        if (retry) {
+          return runCommand(command, args, busyMessage, successNotice, options);
+        }
+      } else {
+        showError(error);
+      }
       return null;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function exportAccount(profile) {
+    if (!profile || state.busy) {
+      return;
+    }
+    setBusy(true, t('busy_export'));
+    try {
+      const path = await invoke('export_account', { id: profile.id });
+      if (path) {
+        showNotice(t('notice_exported', path));
+      }
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importAccount() {
+    await runCommand('import_account', {}, t('busy_import'), null);
   }
 
   function errorCode(error) {
@@ -947,6 +1019,18 @@
       label: t('menu_open_folder'),
       icon: 'folder',
       action: () => openFolder(profile)
+    });
+
+    items.push({
+      label: t('menu_export'),
+      icon: 'folder',
+      action: () => exportAccount(profile)
+    });
+
+    items.push({
+      label: t('menu_import'),
+      icon: 'folder',
+      action: importAccount
     });
 
     items.push({ separator: true });

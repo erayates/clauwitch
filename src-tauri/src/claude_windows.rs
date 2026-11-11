@@ -82,10 +82,12 @@ pub fn close() -> Result<(), String> {
         }
     }
 
-    if wait_until_closed(Duration::from_millis(5000)) {
+    // Give Claude time to flush its session files before falling back to a hard kill.
+    if wait_until_closed(Duration::from_secs(10)) {
         return Ok(());
     }
 
+    paths::log("Claude did not exit after close request; forcing it to stop");
     let remaining: Vec<u32> = scan()
         .unwrap_or_default()
         .into_iter()

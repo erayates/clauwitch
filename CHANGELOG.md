@@ -5,6 +5,12 @@
 - macOS and Linux support (process detection, launch, data paths, folder opening, theme detection).
 - CI builds and checks on Windows, macOS and Linux; release workflow publishes installers for all three.
 - Contributor docs: CONTRIBUTING.md, SECURITY.md.
+- Fix: sessions of an account that were saved in another profile folder (e.g. from using several accounts in one Claude before Clauwitch) are now copied to that account's folder on switch, so they no longer appear missing.
+- Each account shows whether it is signed in.
+- Back up an account to a folder and add an account from a backup.
+- Clear message, retry button and log entry (`clauwitch.log`) when a folder is locked by another program.
+- The window, Alt+F4 and tray Quit are blocked while an account operation is running.
+- Claude gets 10 seconds to exit cleanly before it is force-closed; force-closes are logged.
 
 ## 1.0.0 — 2026-11-10
 

@@ -18,7 +18,9 @@ pub fn setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
             if id == "show" {
                 crate::claude::show_window(app);
             } else if id == "quit" {
-                app.exit(0);
+                if !crate::commands::is_busy() {
+                    app.exit(0);
+                }
             } else if let Some(profile_id) = id.strip_prefix("account:") {
                 commands::show_and_emit_switch(app, profile_id.to_string());
             }

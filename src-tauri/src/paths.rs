@@ -84,7 +84,7 @@ pub fn migrate_legacy_data() {
     }
 }
 
-fn copy_dir_all(source: &Path, destination: &Path) -> io::Result<()> {
+pub fn copy_dir_all(source: &Path, destination: &Path) -> io::Result<()> {
     fs::create_dir_all(destination)?;
     for entry in fs::read_dir(source)? {
         let entry = entry?;
@@ -373,7 +373,7 @@ pub fn ticks_to_ms(ticks: i64) -> i64 {
     (ticks - TICKS_AT_UNIX_EPOCH) / 10_000
 }
 
-fn chrono_like_timestamp() -> String {
+pub fn chrono_like_timestamp() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -400,4 +400,96 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+pub fn log_path() -> PathBuf {
+    app_root().join("clauwitch.log")
+}
+
+/// Appends one line to `clauwitch.log`; the file is reset once it passes 1 MB.
+pub fn log(message: &str) {
+    use std::io::Write;
+    let path = log_path();
+    if fs::metadata(&path)
+        .map(|m| m.len() > 1_000_000)
+        .unwrap_or(false)
+    {
+        let _ = fs::remove_file(&path);
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(file, "{} {message}", chrono_like_timestamp());
+    }
+}
+
+/// True when the OS refused the operation because another program holds the folder open.
+pub fn is_locked(error: &io::Error) -> bool {
+    // Windows: 5 access denied, 32 sharing violation, 33 lock violation. Unix: EBUSY 16.
+    error.kind() == io::ErrorKind::PermissionDenied
+        || matches!(error.raw_os_error(), Some(5 | 16 | 32 | 33))
+}
+
+/// Logs a failed folder operation and maps it to a UI error code.
+pub fn folder_error(context: &str, path: &Path, error: &io::Error, fallback: &str) -> String {
+    log(&format!("{context} failed for {}: {error}", path.display()));
+    if is_locked(error) {
+        "error_folder_locked".to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+/// Copies files from `source` into `destination`, replacing only files that are missing
+/// or older at the destination. Never deletes anything.
+pub fn copy_newer(source: &Path, destination: &Path) -> io::Result<usize> {
+    let mut copied = 0;
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            copied += copy_newer(&from, &to)?;
+        } else if file_type.is_file() {
+            let newer = match (
+                fs::metadata(&from)?.modified(),
+                fs::metadata(&to).and_then(|m| m.modified()),
+            ) {
+                (Ok(src), Ok(dst)) => src > dst,
+                _ => true,
+            };
+            if newer {
+                fs::copy(&from, &to)?;
+                copied += 1;
+            }
+        }
+    }
+    Ok(copied)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_lock_errors() {
+        assert!(is_locked(&io::Error::from_raw_os_error(32)));
+        assert!(is_locked(&io::Error::from(io::ErrorKind::PermissionDenied)));
+        assert!(!is_locked(&io::Error::from(io::ErrorKind::NotFound)));
+    }
+
+    #[test]
+    fn copy_newer_keeps_newer_destination() {
+        let root = std::env::temp_dir().join(format!("clauwitch-copy-{}", now_ticks()));
+        let (src, dst) = (root.join("src"), root.join("dst"));
+        fs::create_dir_all(src.join("a")).unwrap();
+        fs::write(src.join("a/one.json"), "old").unwrap();
+        fs::create_dir_all(dst.join("a")).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(dst.join("a/one.json"), "new").unwrap();
+        fs::write(src.join("two.json"), "x").unwrap();
+        assert_eq!(copy_newer(&src, &dst).unwrap(), 1);
+        assert_eq!(fs::read_to_string(dst.join("a/one.json")).unwrap(), "new");
+        assert!(dst.join("two.json").is_file());
+        let _ = fs::remove_dir_all(root);
+    }
 }

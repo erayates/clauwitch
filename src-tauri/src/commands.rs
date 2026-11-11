@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use serde::Serialize;
@@ -19,6 +20,12 @@ use crate::switcher;
 use crate::tray;
 
 static SWITCH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static BUSY: AtomicBool = AtomicBool::new(false);
+
+/// True while an account operation is moving folders; closing the app then could leave data half-moved.
+pub fn is_busy() -> bool {
+    BUSY.load(Ordering::SeqCst)
+}
 
 #[derive(Serialize)]
 pub struct StateDto {
@@ -82,12 +89,15 @@ async fn mutate<F>(app: AppHandle, operation: F) -> Result<StateDto, String>
 where
     F: FnOnce() -> Result<(), String> + Send + 'static,
 {
-    let state = run_blocking(move || {
+    BUSY.store(true, Ordering::SeqCst);
+    let result = run_blocking(move || {
         let _guard = lock();
         operation()?;
         Ok::<StateDto, String>(build_state())
     })
-    .await?;
+    .await;
+    BUSY.store(false, Ordering::SeqCst);
+    let state = result?;
 
     apply_window_chrome(&app, &state);
     let _ = tray::rebuild(&app);
@@ -222,8 +232,12 @@ pub fn window_is_maximized(app: AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn window_close(app: AppHandle) {
+pub fn window_close(app: AppHandle) -> Result<(), String> {
+    if is_busy() {
+        return Err("error_busy".to_string());
+    }
     app.exit(0);
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -339,7 +353,7 @@ pub fn window_is_maximized(app: AppHandle) -> Result<bool, String> {
 
 #[cfg(not(windows))]
 #[tauri::command]
-pub fn start_resize_drag(window: tauri::WebviewWindow, direction: String) -> Result<(), String> {
+pub fn start_resize_drag(window: tauri::Window, direction: String) -> Result<(), String> {
     use tauri_runtime::ResizeDirection as D;
     let direction = match direction.as_str() {
         "North" => D::North,
@@ -355,4 +369,41 @@ pub fn start_resize_drag(window: tauri::WebviewWindow, direction: String) -> Res
     window
         .start_resize_dragging(direction)
         .map_err(|_| "error_unexpected".to_string())
+}
+
+fn pick_folder(app: &AppHandle) -> Option<std::path::PathBuf> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .blocking_pick_folder()
+        .and_then(|path| path.into_path().ok())
+}
+
+/// Returns the backup folder path, or `None` if the user cancelled the folder picker.
+#[tauri::command]
+pub async fn export_account(app: AppHandle, id: String) -> Result<Option<String>, String> {
+    run_blocking(move || {
+        let Some(destination) = pick_folder(&app) else {
+            return Ok(None);
+        };
+        let _guard = lock();
+        let settings = Settings::load();
+        switcher::export_profile(&settings, &id, &destination)
+            .map(|path| Some(path.to_string_lossy().to_string()))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn import_account(app: AppHandle) -> Result<StateDto, String> {
+    let picker = app.clone();
+    let source = run_blocking(move || Ok(pick_folder(&picker))).await?;
+    let Some(source) = source else {
+        return run_blocking(|| Ok(build_state())).await;
+    };
+    mutate(app, move || {
+        let mut settings = Settings::load();
+        switcher::import_profile(&mut settings, &source)
+    })
+    .await
 }

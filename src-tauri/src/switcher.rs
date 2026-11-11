@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -139,8 +139,9 @@ pub fn switch_to(settings: &mut Settings, target_id: &str, launch: bool) -> Resu
         if !live.exists() {
             let current_store = active.stored_folder();
             if current_store.is_dir() {
-                paths::move_directory(&current_store, &live)
-                    .map_err(|_| "error_switch_failed".to_string())?;
+                paths::move_directory(&current_store, &live).map_err(|e| {
+                    paths::folder_error("restore live", &current_store, &e, "error_switch_failed")
+                })?;
             } else {
                 fs::create_dir_all(&live).map_err(|_| "error_switch_failed".to_string())?;
             }
@@ -156,15 +157,20 @@ pub fn switch_to(settings: &mut Settings, target_id: &str, launch: bool) -> Resu
         }
 
         paths::move_directory(&live, &active_store)
-            .map_err(|_| "error_switch_failed".to_string())?;
+            .map_err(|e| paths::folder_error("store active", &live, &e, "error_switch_failed"))?;
 
         let target_store = target.stored_folder();
         if target_store.is_dir() {
-            paths::move_directory(&target_store, &live)
-                .map_err(|_| "error_switch_failed".to_string())?;
+            paths::move_directory(&target_store, &live).map_err(|e| {
+                paths::folder_error("activate target", &target_store, &e, "error_switch_failed")
+            })?;
         } else {
             fs::create_dir_all(&live).map_err(|_| "error_switch_failed".to_string())?;
         }
+
+        // Best effort, never fails the switch: bring each account's sessions to its own folder.
+        gather_account_sessions(settings, &live);
+        gather_account_sessions(settings, &active_store);
 
         settings.active_id = target.id.clone();
         if let Some(profile) = settings.find_mut(&target.id) {
@@ -187,6 +193,10 @@ pub fn switch_to(settings: &mut Settings, target_id: &str, launch: bool) -> Resu
     })();
 
     if let Err(error) = result {
+        paths::log(&format!(
+            "switch {} -> {} failed: {error}",
+            active.id, target.id
+        ));
         let live_exists = live.exists();
         let active_store = active.stored_folder();
         let target_store = target.stored_folder();
@@ -331,4 +341,128 @@ fn write_state(from: &str, to: &str) {
 
 fn clear_state() {
     let _ = fs::remove_file(paths::state_path());
+}
+
+/// Copies a profile's Claude data folder into `destination` as a new backup folder.
+pub fn export_profile(
+    settings: &Settings,
+    profile_id: &str,
+    destination: &Path,
+) -> Result<PathBuf, String> {
+    let Some(profile) = settings.find(profile_id) else {
+        return Err("error_folder_missing".to_string());
+    };
+    let source = if profile.id == settings.active_id {
+        if claude::is_running() {
+            return Err("error_close_claude_first".to_string());
+        }
+        live_data_or_err()?
+    } else {
+        profile.stored_folder()
+    };
+    if !source.is_dir() {
+        return Err("error_folder_missing".to_string());
+    }
+
+    let name: String = profile
+        .display_name(&settings.language)
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let target = destination.join(format!(
+        "Clauwitch-{name}-{}",
+        paths::chrono_like_timestamp()
+    ));
+    paths::copy_dir_all(&source, &target).map_err(|error| {
+        let _ = fs::remove_dir_all(&target);
+        paths::folder_error("export", &source, &error, "error_export_failed")
+    })?;
+    paths::log(&format!("exported {} to {}", profile.id, target.display()));
+    Ok(target)
+}
+
+/// Adds a backup folder (or any Claude data folder) as a new saved account.
+pub fn import_profile(settings: &mut Settings, source: &Path) -> Result<(), String> {
+    if !source.join("config.json").is_file() {
+        return Err("error_invalid_backup".to_string());
+    }
+
+    let base = source
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let base = base.strip_prefix("Clauwitch-").unwrap_or(&base);
+    let base: String = base.chars().take(50).collect();
+    let base = if base.trim().is_empty() {
+        "Imported".to_string()
+    } else {
+        base.trim().to_string()
+    };
+
+    let mut name = base.clone();
+    let mut counter = 2;
+    while settings.validate_name(&name, None).is_err() {
+        name = format!("{base} {counter}");
+        counter += 1;
+    }
+
+    let profile = settings.create_profile(&name);
+    let target = profile.stored_folder();
+    paths::copy_dir_all(source, &target).map_err(|error| {
+        let _ = fs::remove_dir_all(&target);
+        paths::folder_error("import", source, &error, "error_import_failed")
+    })?;
+    settings.profiles.push(profile);
+    settings.save()?;
+    paths::log(&format!("imported {} as {name}", source.display()));
+    Ok(())
+}
+
+/// Claude keeps sessions per signed-in account (`<dir>/<accountUuid>/...`). Before Clauwitch
+/// a user may have used several accounts in one data folder, so an account's sessions can sit
+/// in another profile's folder. Copy them into `folder` (the one that account now lives in).
+const SESSION_DIRS: [&str; 2] = ["claude-code-sessions", "local-agent-mode-sessions"];
+
+pub fn gather_account_sessions(settings: &Settings, folder: &Path) {
+    let Some(account) = account_uuid(folder) else {
+        return;
+    };
+    for profile in &settings.profiles {
+        let source = profile.stored_folder();
+        if !source.is_dir() || paths::same_path(&source, folder) {
+            continue;
+        }
+        for dir in SESSION_DIRS {
+            let from = source.join(dir).join(&account);
+            if !from.is_dir() {
+                continue;
+            }
+            match paths::copy_newer(&from, &folder.join(dir).join(&account)) {
+                Ok(0) => {}
+                Ok(count) => paths::log(&format!(
+                    "copied {count} {dir} files for account {account} from {}",
+                    source.display()
+                )),
+                Err(error) => paths::log(&format!(
+                    "session copy from {} failed: {error}",
+                    source.display()
+                )),
+            }
+        }
+    }
+}
+
+fn account_uuid(folder: &Path) -> Option<String> {
+    let text = fs::read_to_string(folder.join("config.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let uuid = value.get("lastKnownAccountUuid")?.as_str()?;
+    // Used as a path component: accept only UUID characters.
+    (!uuid.is_empty() && uuid.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        .then(|| uuid.to_string())
 }

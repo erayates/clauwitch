@@ -48,6 +48,7 @@ pub struct ProfileDto {
     pub is_default: bool,
     pub folder: String,
     pub last_used_ms: Option<i64>,
+    pub signed_in: Option<bool>,
 }
 
 impl Settings {
@@ -233,16 +234,24 @@ impl Settings {
     pub fn profiles_dto(&self) -> Vec<ProfileDto> {
         self.profiles
             .iter()
-            .map(|profile| ProfileDto {
-                id: profile.id.clone(),
-                name: profile.display_name(&self.language),
-                is_default: profile.is_default,
-                folder: profile.stored_folder().to_string_lossy().to_string(),
-                last_used_ms: if profile.last_used_ticks <= 0 {
-                    None
+            .map(|profile| {
+                let folder = if profile.id == self.active_id {
+                    paths::detect_live_data().unwrap_or_else(|| profile.stored_folder())
                 } else {
-                    Some(paths::ticks_to_ms(profile.last_used_ticks))
-                },
+                    profile.stored_folder()
+                };
+                ProfileDto {
+                    id: profile.id.clone(),
+                    name: profile.display_name(&self.language),
+                    is_default: profile.is_default,
+                    folder: profile.stored_folder().to_string_lossy().to_string(),
+                    last_used_ms: if profile.last_used_ticks <= 0 {
+                        None
+                    } else {
+                        Some(paths::ticks_to_ms(profile.last_used_ticks))
+                    },
+                    signed_in: signed_in(&folder),
+                }
             })
             .collect()
     }
@@ -313,4 +322,29 @@ fn sanitize_file_name(name: &str) -> String {
         }
     }
     result.trim().trim_end_matches('.').to_string()
+}
+
+/// Whether a Claude data folder holds a signed-in session. Only checks that Claude's
+/// OAuth token-cache keys exist in `config.json`; token values are never read out.
+/// `None` when the folder has no `config.json` yet (never opened).
+pub fn signed_in(folder: &std::path::Path) -> Option<bool> {
+    let text = fs::read_to_string(folder.join("config.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let object = value.as_object()?;
+    Some(object.keys().any(|key| key.starts_with("oauth:tokenCache")))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn detects_signed_in_folder() {
+        let dir = std::env::temp_dir().join(format!("clauwitch-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(super::signed_in(&dir), None);
+        std::fs::write(dir.join("config.json"), r#"{"locale":"en"}"#).unwrap();
+        assert_eq!(super::signed_in(&dir), Some(false));
+        std::fs::write(dir.join("config.json"), r#"{"oauth:tokenCacheV2":"x"}"#).unwrap();
+        assert_eq!(super::signed_in(&dir), Some(true));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

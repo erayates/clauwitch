@@ -16,6 +16,7 @@ fn main() {
             claude::show_window(app);
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::add_account,
@@ -25,6 +26,8 @@ fn main() {
             commands::close_claude,
             commands::open_active,
             commands::open_folder,
+            commands::export_account,
+            commands::import_account,
             commands::set_language,
             commands::window_minimize,
             commands::window_toggle_maximize,
@@ -32,6 +35,13 @@ fn main() {
             commands::window_close,
             commands::start_resize_drag,
         ])
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if commands::is_busy() {
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(|app| {
             paths::migrate_legacy_data();
             let _ = paths::ensure_dirs();
