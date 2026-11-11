@@ -108,7 +108,15 @@
       settings_reset_window: 'Reset window position',
       settings_version: 'Version {0}',
       close: 'Close',
-      search_placeholder: 'Search accounts'
+      search_placeholder: 'Search accounts',
+      confirm_switch_title: 'Claude will be closed',
+      confirm_switch_body: 'Switching closes Claude. Anything running in the current account stops: Code sessions, Cowork tasks and replies being written. Saved chats and sessions are kept and can be continued later.',
+      step_closing: 'Closing Claude...',
+      step_saving: 'Saving the current account...',
+      step_activating: 'Loading the selected account...',
+      step_launching: 'Starting Claude...',
+      settings_diagnostics: 'Save diagnostics...',
+      notice_diagnostics: 'Diagnostics saved: {0}'
     },
     tr: {
       app_title: 'Clauwitch',
@@ -215,7 +223,15 @@
       settings_reset_window: 'Pencere konumunu sıfırla',
       settings_version: 'Sürüm {0}',
       close: 'Kapat',
-      search_placeholder: 'Hesap ara'
+      search_placeholder: 'Hesap ara',
+      confirm_switch_title: 'Claude kapatılacak',
+      confirm_switch_body: 'Geçiş yapınca Claude kapanır. Mevcut hesapta çalışan her şey durur: Code oturumları, Cowork görevleri ve yazılmakta olan yanıtlar. Kayıtlı sohbetler ve oturumlar silinmez, sonra kaldığınız yerden devam edebilirsiniz.',
+      step_closing: 'Claude kapatılıyor...',
+      step_saving: 'Mevcut hesap kaydediliyor...',
+      step_activating: 'Seçilen hesap yükleniyor...',
+      step_launching: 'Claude başlatılıyor...',
+      settings_diagnostics: 'Tanılama dosyası kaydet...',
+      notice_diagnostics: 'Tanılama dosyası kaydedildi: {0}'
     }
   };
 
@@ -585,6 +601,12 @@
     linkButton(t('settings_open_data'), () => invoke('open_app_path', { kind: 'data' }));
     linkButton(t('settings_open_log'), () => invoke('open_app_path', { kind: 'log' }));
     linkButton(t('settings_reset_window'), () => invoke('reset_window'));
+    linkButton(t('settings_diagnostics'), async () => {
+      const path = await invoke('export_diagnostics');
+      if (path) {
+        showNotice(t('notice_diagnostics', path));
+      }
+    });
     panel.appendChild(links);
 
     const version = document.createElement('p');
@@ -981,6 +1003,21 @@
       return;
     }
 
+    // Switching quits Claude; anything running in the current account stops.
+    if (state.anyRunning) {
+      const ok = await openModal({
+        title: t('confirm_switch_title'),
+        message: t('confirm_switch_body'),
+        confirmText: t('menu_switch'),
+        cancelText: t('cancel'),
+        input: false,
+        danger: true
+      });
+      if (!ok) {
+        return;
+      }
+    }
+
     await runCommand(
       'switch_account',
       { id },
@@ -1282,6 +1319,23 @@
         event.preventDefault();
         closeMenu();
         anchor.focus?.();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+        const items = [...menu.querySelectorAll('[role="menuitem"]:not([disabled])')];
+        if (items.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        const current = items.indexOf(document.activeElement);
+        let next;
+        if (event.key === 'Home') {
+          next = 0;
+        } else if (event.key === 'End') {
+          next = items.length - 1;
+        } else {
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          next = current === -1 ? (step > 0 ? 0 : items.length - 1) : (current + step + items.length) % items.length;
+        }
+        items[next].focus();
       }
     };
     const onResize = () => closeMenu();
@@ -1449,7 +1503,7 @@
           event.stopPropagation();
           cancel();
         } else if (event.key === 'Tab') {
-          const focusable = modal.querySelectorAll('button, input');
+          const focusable = modal.querySelectorAll('button, input, select');
           if (focusable.length === 0) {
             return;
           }
@@ -1654,6 +1708,13 @@
 
     try {
       await listen('tray-settings', () => openSettings());
+      await listen('switch-progress', event => {
+        const key = `step_${event.payload}`;
+        if (state.busy && MESSAGES.en[key]) {
+          state.busyMessage = t(key);
+          renderFooter();
+        }
+      });
       await listen('tray-open-claude', () => openActive());
       await listen('tray-switch', event => {
         if (state.busy) {

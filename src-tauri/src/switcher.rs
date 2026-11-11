@@ -130,6 +130,7 @@ pub fn switch_to(settings: &mut Settings, target_id: &str, launch: bool) -> Resu
     let was_running = claude::is_running();
 
     let result = (|| -> Result<(), String> {
+        crate::commands::progress("closing");
         claude::close()?;
 
         if service_was_running {
@@ -156,9 +157,11 @@ pub fn switch_to(settings: &mut Settings, target_id: &str, launch: bool) -> Resu
             return Err("error_switch_failed".to_string());
         }
 
+        crate::commands::progress("saving");
         paths::move_directory(&live, &active_store)
             .map_err(|e| paths::folder_error("store active", &live, &e, "error_switch_failed"))?;
 
+        crate::commands::progress("activating");
         let target_store = target.stored_folder();
         if target_store.is_dir() {
             paths::move_directory(&target_store, &live).map_err(|e| {
@@ -183,6 +186,7 @@ pub fn switch_to(settings: &mut Settings, target_id: &str, launch: bool) -> Resu
             claude::start_service();
         }
 
+        crate::commands::progress("launching");
         if launch {
             claude::launch()?;
             thread::sleep(Duration::from_millis(1400));

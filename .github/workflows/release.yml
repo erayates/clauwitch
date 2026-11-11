@@ -16,6 +16,9 @@ jobs:
         include:
           - os: windows-latest
             args: --bundles nsis
+          - os: windows-latest
+            args: --target aarch64-pc-windows-msvc --bundles nsis
+            rust_targets: aarch64-pc-windows-msvc
           - os: ubuntu-22.04
             args: --bundles deb,rpm,appimage
           - os: macos-latest
@@ -39,7 +42,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.rust_targets || '' }}
 
       - uses: swatinem/rust-cache@v2
         with:

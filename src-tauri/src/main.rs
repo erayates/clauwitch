@@ -41,6 +41,7 @@ fn main() {
             commands::reset_window,
             commands::open_app_path,
             commands::app_version,
+            commands::export_diagnostics,
             commands::set_language,
             commands::window_minimize,
             commands::window_toggle_maximize,
@@ -63,6 +64,7 @@ fn main() {
 
             let settings = settings::Settings::load();
             let handle = app.handle().clone();
+            commands::init_progress(&handle);
             tray::setup(&handle, &settings)?;
 
             let state = commands::build_state();

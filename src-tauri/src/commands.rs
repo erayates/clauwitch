@@ -507,3 +507,100 @@ pub async fn open_app_path(kind: String) -> Result<(), String> {
 pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
+
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+pub fn init_progress(app: &AppHandle) {
+    let _ = APP.set(app.clone());
+}
+
+/// Tells the UI which step a long operation is on ("closing", "saving", "activating", "launching").
+pub fn progress(step: &str) {
+    if let Some(app) = APP.get() {
+        let _ = app.emit("switch-progress", step);
+    }
+}
+
+/// Writes a plain-text report for bug reports. Contains no tokens or account names;
+/// the user's home folder is shown as `~`.
+#[tauri::command]
+pub async fn export_diagnostics(app: AppHandle) -> Result<Option<String>, String> {
+    let version = app.package_info().version.to_string();
+    run_blocking(move || {
+        let Some(destination) = pick_folder(&app) else {
+            return Ok(None);
+        };
+        let report = diagnostics_report(&version);
+        let path = destination.join(format!(
+            "clauwitch-diagnostics-{}.txt",
+            paths::chrono_like_timestamp()
+        ));
+        std::fs::write(&path, report).map_err(|_| "error_export_failed".to_string())?;
+        Ok(Some(path.to_string_lossy().to_string()))
+    })
+    .await
+}
+
+fn diagnostics_report(version: &str) -> String {
+    use std::fmt::Write;
+    let settings = Settings::load();
+    let processes = claude::scan();
+    let mut out = String::new();
+    let _ = writeln!(out, "Clauwitch {version}");
+    let _ = writeln!(
+        out,
+        "os: {} {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    let _ = writeln!(out, "data: {}", paths::app_root().display());
+    let _ = writeln!(out, "live: {:?}", paths::detect_live_data());
+    let _ = writeln!(out, "launcher: {:?}", paths::detect_launcher());
+    match &processes {
+        Ok(list) => {
+            let _ = writeln!(out, "claude processes: {}", list.len());
+        }
+        Err(error) => {
+            let _ = writeln!(out, "claude scan failed: {error}");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "settings: lang={} theme={} close_to_tray={} busy={}",
+        settings.language,
+        settings.theme,
+        settings.close_to_tray,
+        is_busy()
+    );
+    let _ = writeln!(out, "profiles: {}", settings.profiles.len());
+    for (index, profile) in settings.profiles_dto().iter().enumerate() {
+        let _ = writeln!(
+            out,
+            "  #{index} id={} default={} active={} folder_exists={} signed_in={:?}",
+            profile.id,
+            profile.is_default,
+            profile.id == settings.active_id,
+            std::path::Path::new(&profile.folder).is_dir() || profile.id == settings.active_id,
+            profile.signed_in
+        );
+    }
+    let _ = writeln!(out, "state.ini present: {}", paths::state_path().is_file());
+    let _ = writeln!(out, "\n--- last log lines ---");
+    if let Ok(log) = std::fs::read_to_string(paths::log_path()) {
+        let lines: Vec<&str> = log.lines().collect();
+        for line in &lines[lines.len().saturating_sub(200)..] {
+            let _ = writeln!(out, "{line}");
+        }
+    }
+
+    // Hide the user name in paths.
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    if home.len() > 3 {
+        // Debug-formatted paths ({:?}) double the backslashes.
+        let escaped = home.replace('\\', "\\\\");
+        out = out.replace(&escaped, "~").replace(&home, "~");
+    }
+    out
+}

@@ -14,6 +14,13 @@
 - Settings panel: theme (automatic/light/dark), keep running in the tray, start with the system, open data folder or log, reset window position, version.
 - Tray menu shows the active account and adds Open Claude and Settings; left-click shows the window.
 - Account search appears when there are more than five accounts.
+- Confirmation before switching while Claude is open (running work in the current account stops).
+- Switch progress shows each step (closing, saving, loading, starting).
+- Keyboard: arrow keys, Home/End in menus; dialog focus trap includes all controls.
+- Windows High Contrast support.
+- Settings → Save diagnostics: a report for bug reports without tokens, account names or user name.
+- Release builds for Windows ARM64.
+- docs/TESTING.md manual test checklist.
 
 ## 1.0.0 — 2026-11-10
 

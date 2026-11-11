@@ -1093,3 +1093,35 @@ button {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Windows High Contrast / forced colors: keep borders, focus rings and states visible. */
+@media (forced-colors: active) {
+  .btn,
+  .account-row,
+  .menu,
+  .modal,
+  .status-pill,
+  .search-row,
+  .settings-row select {
+    border: 1px solid CanvasText;
+  }
+
+  .account-row.selected,
+  .account-row[aria-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+
+  .icon {
+    forced-color-adjust: auto;
+  }
+
+  .progress {
+    background: Highlight;
+  }
+}
