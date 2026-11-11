@@ -340,7 +340,7 @@ pub fn window_is_maximized(app: AppHandle) -> Result<bool, String> {
 #[cfg(not(windows))]
 #[tauri::command]
 pub fn start_resize_drag(window: tauri::WebviewWindow, direction: String) -> Result<(), String> {
-    use tauri::window::ResizeDirection as D;
+    use tauri_runtime::ResizeDirection as D;
     let direction = match direction.as_str() {
         "North" => D::North,
         "South" => D::South,

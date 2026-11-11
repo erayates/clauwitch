@@ -494,6 +494,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-single-instance",
  "tauri-plugin-window-state",
+ "tauri-runtime",
  "uuid",
  "windows",
  "winreg",

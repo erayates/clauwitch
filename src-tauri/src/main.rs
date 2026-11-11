@@ -1,9 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[cfg(windows)]
-mod claude;
-#[cfg(not(windows))]
-#[path = "claude_unix.rs"]
 mod claude;
 mod commands;
 mod i18n;
