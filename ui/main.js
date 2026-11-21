@@ -109,6 +109,8 @@
       settings_version: 'Version {0}',
       close: 'Close',
       search_placeholder: 'Search accounts',
+      locked_by: 'In use by: {0}',
+      settings_updates: 'Check for updates',
       confirm_switch_title: 'Claude will be closed',
       confirm_switch_body: 'Switching closes Claude. Anything running in the current account stops: Code sessions, Cowork tasks and replies being written. Saved chats and sessions are kept and can be continued later.',
       step_closing: 'Closing Claude...',
@@ -224,6 +226,8 @@
       settings_version: 'Sürüm {0}',
       close: 'Kapat',
       search_placeholder: 'Hesap ara',
+      locked_by: 'Kullanan program: {0}',
+      settings_updates: 'Güncellemeleri kontrol et',
       confirm_switch_title: 'Claude kapatılacak',
       confirm_switch_body: 'Geçiş yapınca Claude kapanır. Mevcut hesapta çalışan her şey durur: Code oturumları, Cowork görevleri ve yazılmakta olan yanıtlar. Kayıtlı sohbetler ve oturumlar silinmez, sonra kaldığınız yerden devam edebilirsiniz.',
       step_closing: 'Claude kapatılıyor...',
@@ -601,6 +605,7 @@
     linkButton(t('settings_open_data'), () => invoke('open_app_path', { kind: 'data' }));
     linkButton(t('settings_open_log'), () => invoke('open_app_path', { kind: 'log' }));
     linkButton(t('settings_reset_window'), () => invoke('reset_window'));
+    linkButton(t('settings_updates'), () => invoke('open_releases'));
     linkButton(t('settings_diagnostics'), async () => {
       const path = await invoke('export_diagnostics');
       if (path) {
@@ -865,7 +870,7 @@
       if (code === 'error_folder_locked' || code === 'error_switch_failed' || code === 'error_close_failed') {
         const retry = await openModal({
           title: t('error_title'),
-          message: t(code),
+          message: errorMessage(error),
           confirmText: t('retry'),
           cancelText: t('cancel'),
           input: false,
@@ -904,6 +909,18 @@
     await runCommand('import_account', {}, t('busy_import'), null);
   }
 
+  function errorMessage(error) {
+    const code = errorCode(error);
+    const raw = String(error?.message ?? error ?? '');
+    const split = raw.indexOf('|');
+    if (code === 'error_folder_locked' && split >= 0) {
+      return `${t(code)}
+
+${t('locked_by', raw.slice(split + 1))}`;
+    }
+    return t(code);
+  }
+
   function errorCode(error) {
     const raw = String(error?.message ?? error ?? '');
     const keys = Object.keys(MESSAGES.en).filter(key => key.startsWith('error_'));
@@ -913,7 +930,7 @@
   function showError(error) {
     openModal({
       title: t('error_title'),
-      message: t(errorCode(error)),
+      message: errorMessage(error),
       confirmText: t('ok'),
       cancelText: null,
       input: false,

@@ -379,3 +379,94 @@ fn hide_console(command: &mut Command) {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 }
+
+/// Names of programs holding files open inside `dir`, via the Windows Restart Manager.
+/// Only checks the first few thousand files; enough to name the usual culprits.
+pub fn lock_holders(dir: &Path) -> Vec<String> {
+    use windows::Win32::System::RestartManager::{
+        RmEndSession, RmGetList, RmRegisterResources, RmStartSession, CCH_RM_SESSION_KEY,
+        RM_PROCESS_INFO,
+    };
+
+    let mut files: Vec<Vec<u16>> = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => stack.push(path),
+                Ok(kind) if kind.is_file() => {
+                    use std::os::windows::ffi::OsStrExt;
+                    files.push(path.as_os_str().encode_wide().chain([0]).collect());
+                }
+                _ => {}
+            }
+            if files.len() >= 5000 {
+                stack.clear();
+                break;
+            }
+        }
+    }
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let names: Vec<PCWSTR> = files.iter().map(|f| PCWSTR(f.as_ptr())).collect();
+
+    let mut holders = Vec::new();
+    unsafe {
+        let mut session = 0u32;
+        let mut key = [0u16; CCH_RM_SESSION_KEY as usize + 1];
+        if RmStartSession(&mut session, None, windows::core::PWSTR(key.as_mut_ptr())).0 != 0 {
+            return holders;
+        }
+        if RmRegisterResources(session, Some(&names), None, None).0 == 0 {
+            let mut needed = 0u32;
+            let mut count = 0u32;
+            let mut reasons = 0u32;
+            let _ = RmGetList(session, &mut needed, &mut count, None, &mut reasons);
+            if needed > 0 {
+                let mut info = vec![RM_PROCESS_INFO::default(); needed as usize];
+                count = needed;
+                if RmGetList(
+                    session,
+                    &mut needed,
+                    &mut count,
+                    Some(info.as_mut_ptr()),
+                    &mut reasons,
+                )
+                .0 == 0
+                {
+                    for item in &info[..count as usize] {
+                        let end = item.strAppName.iter().position(|&c| c == 0).unwrap_or(256);
+                        let name = String::from_utf16_lossy(&item.strAppName[..end]);
+                        if !name.is_empty() && !holders.contains(&name) {
+                            holders.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        let _ = RmEndSession(session);
+    }
+    holders
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn finds_process_holding_a_file() {
+        let dir = std::env::temp_dir().join(format!("clauwitch-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _held = std::fs::File::create(dir.join("held.txt")).unwrap();
+        let holders = super::lock_holders(&dir);
+        assert!(
+            !holders.is_empty(),
+            "expected this test process to be listed"
+        );
+        drop(_held);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

@@ -1125,3 +1125,7 @@ button {
     background: Highlight;
   }
 }
+
+.modal-text {
+  white-space: pre-line;
+}

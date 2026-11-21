@@ -432,7 +432,13 @@ pub fn is_locked(error: &io::Error) -> bool {
 pub fn folder_error(context: &str, path: &Path, error: &io::Error, fallback: &str) -> String {
     log(&format!("{context} failed for {}: {error}", path.display()));
     if is_locked(error) {
-        "error_folder_locked".to_string()
+        // Error codes travel to the UI as text; program names follow a "|".
+        let holders = crate::claude::lock_holders(path);
+        if holders.is_empty() {
+            return "error_folder_locked".to_string();
+        }
+        log(&format!("folder in use by: {}", holders.join(", ")));
+        format!("error_folder_locked|{}", holders.join(", "))
     } else {
         fallback.to_string()
     }

@@ -21,6 +21,9 @@
 - Settings → Save diagnostics: a report for bug reports without tokens, account names or user name.
 - Release builds for Windows ARM64.
 - docs/TESTING.md manual test checklist.
+- The "folder in use" message names the program holding it (Windows Restart Manager; `lsof` on macOS/Linux).
+- Windows Snap (drag to edge, Win+Arrow) works on the frameless window.
+- Settings → Check for updates opens the Releases page (the app itself stays offline).
 
 ## 1.0.0 — 2026-11-10
 

@@ -30,4 +30,5 @@ Run before a release. CI covers build, clippy and unit tests; these need a real 
 - [ ] Offline: everything works (the app makes no network requests).
 - [ ] Keyboard only: Tab through header, list (arrow keys), menus (arrow keys, Esc), dialogs (focus stays inside).
 - [ ] Windows High Contrast on: borders, selection and focus are visible.
+- [ ] Windows Snap: drag the title bar to a screen edge, and Win+Left/Right/Up: window snaps without a border.
 - [ ] Turkish and English UI texts fit and read correctly.

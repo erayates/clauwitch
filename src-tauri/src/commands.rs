@@ -604,3 +604,11 @@ fn diagnostics_report(version: &str) -> String {
     }
     out
 }
+
+const RELEASES_URL: &str = "https://github.com/erayates/clauwitch/releases";
+
+/// Opens the Releases page in the browser; the app itself makes no network requests.
+#[tauri::command]
+pub async fn open_releases() -> Result<(), String> {
+    run_blocking(|| switcher::open_path(std::path::Path::new(RELEASES_URL))).await
+}

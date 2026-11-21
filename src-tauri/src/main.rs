@@ -42,6 +42,7 @@ fn main() {
             commands::open_app_path,
             commands::app_version,
             commands::export_diagnostics,
+            commands::open_releases,
             commands::set_language,
             commands::window_minimize,
             commands::window_toggle_maximize,
