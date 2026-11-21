@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — 2026-11-22
 
 - macOS and Linux support (process detection, launch, data paths, folder opening, theme detection).
 - CI builds and checks on Windows, macOS and Linux; release workflow publishes installers for all three.

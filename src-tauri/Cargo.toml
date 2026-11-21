@@ -1,6 +1,6 @@
 [package]
 name = "clauwitch"
-version = "1.0.0"
+version = "1.1.0"
 description = "Clauwitch - switch between Claude Desktop accounts with saved sessions."
 authors = ["Clauwitch contributors"]
 edition = "2021"

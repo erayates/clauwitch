@@ -184,6 +184,27 @@ fn is_desktop_claude(args: &str) -> bool {
         || lower.contains("/claude/claude ")
 }
 
+/// Names of programs holding files open inside `dir` (via `lsof`, if installed).
+pub fn lock_holders(dir: &Path) -> Vec<String> {
+    let Ok(output) = Command::new("lsof")
+        .args(["-Fc", "+D"])
+        .arg(dir)
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(name) = line.strip_prefix('c') {
+            if !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::is_desktop_claude;
@@ -204,25 +225,4 @@ mod tests {
             "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"
         ));
     }
-}
-
-/// Names of programs holding files open inside `dir` (via `lsof`, if installed).
-pub fn lock_holders(dir: &Path) -> Vec<String> {
-    let Ok(output) = Command::new("lsof")
-        .args(["-Fc", "+D"])
-        .arg(dir)
-        .stderr(Stdio::null())
-        .output()
-    else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = Vec::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        if let Some(name) = line.strip_prefix('c') {
-            if !names.iter().any(|n| n == name) {
-                names.push(name.to_string());
-            }
-        }
-    }
-    names
 }
